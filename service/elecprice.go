@@ -6,10 +6,10 @@ import (
 	"fmt"
 	elecpricev1 "github.com/asynccnu/be-api/gen/proto/elecprice/v1"
 	"github.com/asynccnu/be-elecprice/domain"
+	"github.com/asynccnu/be-elecprice/pkg/errorx"
 	"github.com/asynccnu/be-elecprice/pkg/logger"
 	"github.com/asynccnu/be-elecprice/repository/dao"
 	"github.com/asynccnu/be-elecprice/repository/model"
-	"github.com/asynccnu/be-user/pkg/errorx"
 	"strconv"
 	"sync"
 )

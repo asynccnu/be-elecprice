@@ -37,7 +37,7 @@ COPY --from=builder /app/app .
 COPY --from=builder /app/config /app/config
 
 # 开放端口（根据需要设置）
-EXPOSE 19085
+EXPOSE 19089
 
 # 启动用户服务
 CMD ["./app"]
