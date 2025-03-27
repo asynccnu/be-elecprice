@@ -10,8 +10,10 @@ import (
 	"github.com/asynccnu/be-elecprice/pkg/logger"
 	"github.com/asynccnu/be-elecprice/repository/dao"
 	"github.com/asynccnu/be-elecprice/repository/model"
+	"net/url"
 	"strconv"
 	"sync"
+	"time"
 )
 
 var (
@@ -27,9 +29,11 @@ var (
 )
 
 type ElecpriceService interface {
-	Check(ctx context.Context, place *domain.Place) (*domain.Elecprice, error)
 	SetStandard(ctx context.Context, cfg *domain.ElecpriceConfig) error
 	GetTobePushMSG(ctx context.Context) ([]*domain.ElectricMSG, error)
+	GetAIDandName(ctx context.Context, area string) (map[string]string, error)
+	GetRoomInfo(ctx context.Context, archiID string, floor string) (map[string]string, error)
+	GetPrice(ctx context.Context, area string, floor string) (*domain.Elecprice, error)
 }
 
 type elecpriceService struct {
@@ -39,15 +43,6 @@ type elecpriceService struct {
 
 func NewElecpriceService(elecpriceDAO dao.ElecpriceDAO, l logger.Logger) ElecpriceService {
 	return &elecpriceService{elecpriceDAO: elecpriceDAO, l: l}
-}
-
-// Check 实现 gRPC 的 Check 方法，接收请求体并返回响应体
-func (s *elecpriceService) Check(ctx context.Context, place *domain.Place) (*domain.Elecprice, error) {
-	price, err := s.fetchElecPrice(ctx, place)
-	if err != nil {
-		return nil, INTERNET_ERROR(err)
-	}
-	return price, nil
 }
 
 func (s *elecpriceService) SetStandard(ctx context.Context, cfg *domain.ElecpriceConfig) error {
@@ -62,9 +57,8 @@ func (s *elecpriceService) SetStandard(ctx context.Context, cfg *domain.Elecpric
 		conf = &model.ElecpriceConfig{
 			StudentID: cfg.StudentId,
 			Money:     cfg.Money,
-			Area:      cfg.Place.Area,
-			Building:  cfg.Place.Building,
-			Room:      cfg.Place.Room,
+			LightID:   cfg.IDs.LightID,
+			AirID:     cfg.IDs.AirID,
 		}
 	}
 
@@ -117,19 +111,16 @@ func (s *elecpriceService) GetTobePushMSG(ctx context.Context) ([]*domain.Electr
 				defer func() { <-semaphore }()
 
 				// 获取房间的实时电费
-				elecPrice, err := s.fetchElecPrice(ctx, &domain.Place{
-					Area:     cfg.Area,
-					Building: cfg.Building,
-					Room:     cfg.Room,
-				})
+				elecPrice, err := s.GetPrice(ctx, cfg.AirID, cfg.LightID)
+
 				if err != nil {
 					errChan <- err
 					return
 				}
 
 				// 转换电费数据为浮点数
-				lightingRemain, err1 := strconv.ParseFloat(elecPrice.LightingRemainMoney, 64)
-				airRemain, err2 := strconv.ParseFloat(elecPrice.AirRemainMoney, 64)
+				lightingRemain, err1 := strconv.ParseFloat(elecPrice.Lighting.RemainMoney, 64)
+				airRemain, err2 := strconv.ParseFloat(elecPrice.Airconditioner.RemainMoney, 64)
 
 				// 跳过解析失败的数据
 				if err1 != nil || err2 != nil {
@@ -140,8 +131,8 @@ func (s *elecpriceService) GetTobePushMSG(ctx context.Context) ([]*domain.Electr
 				// 检查是否符合用户设定的阈值
 				if lightingRemain < float64(cfg.Money) || airRemain < float64(cfg.Money) {
 					msg := &domain.ElectricMSG{
-						LightingRemainMoney: &elecPrice.LightingRemainMoney,
-						AirRemainMoney:      &elecPrice.AirRemainMoney,
+						LightingRemainMoney: &elecPrice.Lighting.RemainMoney,
+						AirRemainMoney:      &elecPrice.Airconditioner.RemainMoney,
 						StudentId:           cfg.StudentID,
 					}
 
@@ -168,72 +159,114 @@ func (s *elecpriceService) GetTobePushMSG(ctx context.Context) ([]*domain.Electr
 		// 更新游标
 		lastID = nextID
 	}
-
 	return resultMsgs, nil
 }
 
-func (s *elecpriceService) fetchElecPrice(ctx context.Context, place *domain.Place) (*domain.Elecprice, error) {
-	for area, areaCode := range ConstantMap {
-		if place.Area == area {
-			var (
-				LightingYesterdayUseValue string
-				LightingRemainMoney       string
-				LightingYesterdayUseMoney string
-				AirYesterdayUseValue      string
-				AirRemainMoney            string
-				AirYesterdayUseMoney      string
-				err                       error
-			)
-
-			wg := sync.WaitGroup{}
-			errChan := make(chan error, 2) // 错误通道，用于捕获 goroutine 中的错误
-
-			// 定义爬取函数，减少重复代码
-			crawl := func(crawlFunc func(context.Context, string, string, string) (string, string, string, error),
-				elecprice *string, price *string, rest *string) {
-				defer wg.Done()
-				var newErr error
-				*elecprice, *price, *rest, newErr = crawlFunc(ctx, areaCode, place.Building, place.Room)
-				if newErr != nil {
-					errChan <- newErr
-				}
-			}
-
-			// 启动爬取 Lighting 数据的 goroutine
-			wg.Add(1)
-			go crawl(CrawlLighting, &LightingRemainMoney, &LightingYesterdayUseMoney, &LightingYesterdayUseValue)
-
-			// 启动爬取 Air 数据的 goroutine
-			wg.Add(1)
-			go crawl(CrawlAirCondition, &AirRemainMoney, &AirYesterdayUseValue, &AirYesterdayUseMoney)
-
-			// 等待所有 goroutine 完成
-			wg.Wait()
-			close(errChan)
-
-			// 检查错误通道是否有错误
-			for e := range errChan {
-				if e != nil {
-					err = e
-					break
-				}
-			}
-
+func (s *elecpriceService) GetAIDandName(ctx context.Context, area string) (map[string]string, error) {
+	for name_, code := range ConstantMap {
+		if area == name_ {
+			body, err := sendRequest(ctx, fmt.Sprintf("https://jnb.ccnu.edu.cn/ICBS/PurchaseWebService.asmx/getArchitectureInfo?Area_ID=%s", code))
 			if err != nil {
-				return nil, err
+				return nil, INTERNET_ERROR(err)
+			}
+			rege := `<ArchitectureID>(\d+)</ArchitectureID>\s*<ArchitectureName>(.*?)</ArchitectureName>`
+			res, err := matchRegex(body, rege)
+			if err != nil {
+				return nil, INTERNET_ERROR(err)
 			}
 
-			return &domain.Elecprice{
-				LightingYesterdayUseValue: LightingYesterdayUseMoney,
-				LightingRemainMoney:       LightingRemainMoney,
-				LightingYesterdayUseMoney: LightingYesterdayUseValue,
-				AirYesterdayUseValue:      AirYesterdayUseValue,
-				AirRemainMoney:            AirRemainMoney,
-				AirYesterdayUseMoney:      AirYesterdayUseMoney,
-			}, nil
+			return res, nil
 
 		}
 	}
+	return nil, errors.New("不存在的区域")
+}
 
-	return nil, errors.New("不存在的房间")
+func (s *elecpriceService) GetRoomInfo(ctx context.Context, archiID string, floor string) (map[string]string, error) {
+	body, err := sendRequest(ctx, fmt.Sprintf("https://jnb.ccnu.edu.cn/ICBS/PurchaseWebService.asmx/getRoomInfo?Architecture_ID=%s&Floor=%s", archiID, floor))
+	if err != nil {
+		return nil, INTERNET_ERROR(err)
+	}
+
+	rege := `<RoomNo>(\d+)</RoomNo>\s*<RoomName>(.*?)</RoomName>`
+	res, err := matchRegex(body, rege)
+	if err != nil {
+		return nil, INTERNET_ERROR(err)
+	}
+
+	return res, nil
+}
+
+func (s *elecpriceService) GetPrice(ctx context.Context, aroomid string, lroomid string) (*domain.Elecprice, error) {
+	amid, err := s.GetMeterID(ctx, aroomid)
+	if err != nil {
+		return nil, INTERNET_ERROR(err)
+	}
+	lmid, err := s.GetMeterID(ctx, lroomid)
+	if err != nil {
+		return nil, INTERNET_ERROR(err)
+	}
+	airc, err := s.GetFinalInfo(ctx, amid)
+	if err != nil {
+		return nil, INTERNET_ERROR(err)
+	}
+	light, err := s.GetFinalInfo(ctx, lmid)
+	if err != nil {
+		return nil, INTERNET_ERROR(err)
+	}
+	return &domain.Elecprice{
+		Airconditioner: airc,
+		Lighting:       light,
+	}, nil
+}
+
+func (s *elecpriceService) GetMeterID(ctx context.Context, RoomID string) (string, error) {
+	body, err := sendRequest(ctx, fmt.Sprintf("https://jnb.ccnu.edu.cn/ICBS/PurchaseWebService.asmx/getRoomMeterInfo?Room_ID=%s", RoomID))
+	if err != nil {
+		return "", INTERNET_ERROR(err)
+	}
+
+	rege := `<meterId>(.*?)</meterId>`
+	id, err := matchRegexpOneEle(body, rege)
+	if err != nil {
+		return "", INTERNET_ERROR(err)
+	}
+
+	return id, nil
+}
+
+func (s *elecpriceService) GetFinalInfo(ctx context.Context, meterID string) (*domain.Prices, error) {
+	//取余额
+	body, err := sendRequest(ctx, fmt.Sprintf("https://jnb.ccnu.edu.cn/ICBS/PurchaseWebService.asmx/getReserveHKAM?AmMeter_ID=%s", meterID))
+	if err != nil {
+		return nil, INTERNET_ERROR(err)
+	}
+	reg1 := `<remainPower>(.*?)</remainPower>`
+	remain, err := matchRegexpOneEle(body, reg1)
+	if err != nil {
+		return nil, INTERNET_ERROR(err)
+	}
+
+	//取昨天消费
+	encodedDate := url.QueryEscape(time.Now().AddDate(0, 0, -1).Format("2006/1/2"))
+	body, err = sendRequest(ctx, fmt.Sprintf("https://jnb.ccnu.edu.cn/ICBS/PurchaseWebService.asmx/getMeterDayValue?AmMeter_ID=%s&startDate=%s&endDate=%s", meterID, encodedDate, encodedDate))
+	if err != nil {
+		return nil, INTERNET_ERROR(err)
+	}
+	reg2 := `<dayValue>(.*?)</dayValue>`
+	dayValue, err := matchRegexpOneEle(body, reg2)
+	if err != nil {
+		return nil, INTERNET_ERROR(err)
+	}
+	reg3 := `<dayUseMeony>(.*?)</dayUseMeony>`
+	dayUseMeony, err := matchRegexpOneEle(body, reg3)
+	if err != nil {
+		return nil, INTERNET_ERROR(err)
+	}
+	finalInfo := &domain.Prices{
+		RemainMoney:       remain,
+		YesterdayUseMoney: dayUseMeony,
+		YesterdayUseValue: dayValue,
+	}
+	return finalInfo, nil
 }
