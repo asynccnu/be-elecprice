@@ -1,28 +1,39 @@
 package domain
 
 type Elecprice struct {
-	LightingRemainMoney       string // 剩余照明电费
-	LightingYesterdayUseValue string // 昨日花费电量
-	LightingYesterdayUseMoney string // 昨日花费电费
-	AirRemainMoney            string // 空调价格
-	AirYesterdayUseValue      string // 剩余照明电费
-	AirYesterdayUseMoney      string // 空调剩余
+	Airconditioner *Prices `json:"airconditioner"`
+	Lighting       *Prices `json:"lighting"`
 }
 
-type Place struct {
-	Area     string // 区域
-	Building string // 建筑
-	Room     string // 房间号
+type IDs struct {
+	LightID string
+	AirID   string
 }
 
 type ElecpriceConfig struct {
 	Money     int64
 	StudentId string // 学号
-	Place     Place
+	IDs       IDs
 }
 
 type ElectricMSG struct {
 	LightingRemainMoney *string
 	AirRemainMoney      *string
 	StudentId           string // 学号
+}
+
+type Architecture struct {
+	AID  string
+	Name string
+}
+
+type RoomInfo struct {
+	RID  string
+	Name string
+}
+
+type Prices struct {
+	RemainMoney       string
+	YesterdayUseValue string
+	YesterdayUseMoney string
 }

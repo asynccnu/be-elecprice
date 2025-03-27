@@ -8,9 +8,8 @@ import (
 type ElecpriceConfig struct {
 	StudentID string // 学生号
 	Money     int64  //金额
-	Area      string //地区
-	Building  string //建筑
-	Room      string //房间
+	LightID   string // 灯ID
+	AirID     string // 空调ID
 	BaseModel
 }
 

@@ -66,7 +66,6 @@ func (r *ElecpriceController) publishMSG() error {
 	if err != nil {
 		return err
 	}
-
 	for i := range msgs {
 		if msgs[i].LightingRemainMoney != nil {
 			//发送给全体成员
