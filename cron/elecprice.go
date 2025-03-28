@@ -67,26 +67,15 @@ func (r *ElecpriceController) publishMSG() error {
 		return err
 	}
 	for i := range msgs {
-		if msgs[i].LightingRemainMoney != nil {
-			//发送给全体成员
-			_, err = r.feedClient.PublicFeedEvent(ctx, &feedv1.PublicFeedEventReq{
-				StudentId: msgs[i].StudentId,
-				Event: &feedv1.FeedEvent{
-					Type:    "light",
-					Title:   "照明电费不足提醒",
-					Content: fmt.Sprintf("您当前的电费已经低于%d", msgs[i].LightingRemainMoney),
-				},
-			})
-		}
+		if msgs[i].Remain != nil {
 
-		if msgs[i].AirRemainMoney != nil {
 			//发送给全体成员
 			_, err = r.feedClient.PublicFeedEvent(ctx, &feedv1.PublicFeedEventReq{
 				StudentId: msgs[i].StudentId,
 				Event: &feedv1.FeedEvent{
-					Type:    "air_conditioner",
-					Title:   "空调电费不足提醒",
-					Content: fmt.Sprintf("您当前的电费已经低于%d", msgs[i].AirRemainMoney),
+					Type:    "energy",
+					Title:   "电费不足提醒",
+					Content: fmt.Sprintf("您的房间%s当前的电费为:%s,低于设置阈值,请及时充费", *(msgs[i].RoomName), *(msgs[i].Remain)),
 				},
 			})
 		}

@@ -9,10 +9,11 @@ import (
 
 // ElecpriceDAO 数据库操作的集合
 type ElecpriceDAO interface {
-	First(ctx context.Context, studentId string) (*model.ElecpriceConfig, error)
-	Save(ctx context.Context, elecprice *model.ElecpriceConfig) error
+	FindAll(ctx context.Context, studengId string) ([]model.ElecpriceConfig, error)
+	Delete(ctx context.Context, studentId string, roomId string) error
 	GetConfigsByCursor(ctx context.Context, lastID int64, limit int) ([]model.ElecpriceConfig, int64, error)
 	IsNotFoundError(err error) bool
+	Upsert(ctx context.Context, studentId string, roomId string, ec *model.ElecpriceConfig) error
 }
 
 type elecpriceDAO struct {
@@ -24,18 +25,14 @@ func NewElecpriceDAO(db *gorm.DB) ElecpriceDAO {
 	return &elecpriceDAO{db: db}
 }
 
-func (d *elecpriceDAO) First(ctx context.Context, studentId string) (*model.ElecpriceConfig, error) {
-	cfg := model.ElecpriceConfig{}
-	err := d.db.WithContext(ctx).Where("student_id = ?", studentId).First(&cfg).Error
+func (d *elecpriceDAO) FindAll(ctx context.Context, studentId string) ([]model.ElecpriceConfig, error) {
+	var configs []model.ElecpriceConfig
+	err := d.db.WithContext(ctx).Where("student_id = ?", studentId).Find(&configs).Error
 	if err != nil {
 		return nil, err
 	}
 
-	return &cfg, nil
-}
-
-func (d *elecpriceDAO) Save(ctx context.Context, elecprice *model.ElecpriceConfig) error {
-	return d.db.WithContext(ctx).Save(elecprice).Error
+	return configs, nil
 }
 
 func (d *elecpriceDAO) GetConfigsByCursor(ctx context.Context, lastID int64, limit int) ([]model.ElecpriceConfig, int64, error) {
@@ -67,4 +64,17 @@ func (d *elecpriceDAO) GetConfigsByCursor(ctx context.Context, lastID int64, lim
 
 func (d *elecpriceDAO) IsNotFoundError(err error) bool {
 	return errors.Is(err, gorm.ErrRecordNotFound)
+}
+
+func (d *elecpriceDAO) Delete(ctx context.Context, studentId string, roomId string) error {
+	return d.db.WithContext(ctx).Where("target_id = ? and student_id = ?", roomId, studentId).Delete(&model.ElecpriceConfig{}).Error
+}
+
+func (d *elecpriceDAO) Upsert(ctx context.Context, studentId string, roomId string, ec *model.ElecpriceConfig) error {
+	var old model.ElecpriceConfig
+	d.db.Where("student_id = ? and target_id = ?", studentId, roomId).First(&old)
+	if old.RoomName == ec.RoomName {
+		return d.db.Model(&old).Updates(ec).Error
+	}
+	return d.db.Create(ec).Error
 }
