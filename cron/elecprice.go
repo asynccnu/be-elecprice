@@ -42,7 +42,7 @@ func NewElecpriceController(
 
 func (r *ElecpriceController) StartCronTask() {
 	go func() {
-		ticker := time.NewTicker(time.Duration(r.cfg.DurationTime) * time.Second)
+		ticker := time.NewTicker(time.Duration(r.cfg.DurationTime) * time.Hour)
 		for {
 			select {
 			case <-ticker.C:
