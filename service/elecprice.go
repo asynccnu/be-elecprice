@@ -29,11 +29,14 @@ var (
 )
 
 type ElecpriceService interface {
-	SetStandard(ctx context.Context, cfg *domain.ElecpriceConfig) error
+	SetStandard(ctx context.Context, r *domain.SetStandardRequest) error
+	GetStandardList(ctx context.Context, r *domain.GetStandardListRequest) (*domain.GetStandardListResponse, error)
+	CancelStandard(ctx context.Context, r *domain.CancelStandardRequest) error
 	GetTobePushMSG(ctx context.Context) ([]*domain.ElectricMSG, error)
+
 	GetAIDandName(ctx context.Context, area string) (map[string]string, error)
 	GetRoomInfo(ctx context.Context, archiID string, floor string) (map[string]string, error)
-	GetPrice(ctx context.Context, area string, floor string) (*domain.Elecprice, error)
+	GetPrice(ctx context.Context, roomid string) (*domain.Prices, error)
 }
 
 type elecpriceService struct {
@@ -45,29 +48,37 @@ func NewElecpriceService(elecpriceDAO dao.ElecpriceDAO, l logger.Logger) Elecpri
 	return &elecpriceService{elecpriceDAO: elecpriceDAO, l: l}
 }
 
-func (s *elecpriceService) SetStandard(ctx context.Context, cfg *domain.ElecpriceConfig) error {
-	// 查询是否存在记录
-	conf, err := s.elecpriceDAO.First(ctx, cfg.StudentId)
-	if err != nil && !s.elecpriceDAO.IsNotFoundError(err) { // 非 NotFound 错误直接返回
-		return INTERNET_ERROR(fmt.Errorf("查询配置失败: %w", err))
+func (s *elecpriceService) SetStandard(ctx context.Context, r *domain.SetStandardRequest) error {
+	conf := &model.ElecpriceConfig{
+		StudentID: r.StudentId,
+		Limit:     r.Standard.Limit,
+		RoomName:  r.Standard.RoomName,
+		TargetID:  r.Standard.RoomId,
 	}
 
-	if conf == nil {
-		// 构造需要保存的数据
-		conf = &model.ElecpriceConfig{
-			StudentID: cfg.StudentId,
-			Money:     cfg.Money,
-			LightID:   cfg.IDs.LightID,
-			AirID:     cfg.IDs.AirID,
-		}
-	}
+	return s.elecpriceDAO.Upsert(ctx, r.StudentId, r.Standard.RoomId, conf)
+}
 
-	err = s.elecpriceDAO.Save(ctx, conf)
+func (s *elecpriceService) GetStandardList(ctx context.Context, r *domain.GetStandardListRequest) (*domain.GetStandardListResponse, error) {
+	res, err := s.elecpriceDAO.FindAll(ctx, r.StudentId)
 	if err != nil {
-		return err
+		return nil, FIND_CONFIG_ERROR(err)
 	}
 
-	return nil
+	var standards []*domain.Standard
+	for _, r := range res {
+		standards = append(standards, &domain.Standard{
+			Limit:    r.Limit,
+			RoomId:   r.TargetID,
+			RoomName: r.RoomName,
+		})
+	}
+
+	return &domain.GetStandardListResponse{Standard: standards}, nil
+}
+
+func (s *elecpriceService) CancelStandard(ctx context.Context, r *domain.CancelStandardRequest) error {
+	return s.elecpriceDAO.Delete(ctx, r.StudentId, r.RoomId)
 }
 
 func (s *elecpriceService) GetTobePushMSG(ctx context.Context) ([]*domain.ElectricMSG, error) {
@@ -111,7 +122,7 @@ func (s *elecpriceService) GetTobePushMSG(ctx context.Context) ([]*domain.Electr
 				defer func() { <-semaphore }()
 
 				// 获取房间的实时电费
-				elecPrice, err := s.GetPrice(ctx, cfg.AirID, cfg.LightID)
+				elecPrice, err := s.GetPrice(ctx, cfg.TargetID)
 
 				if err != nil {
 					errChan <- err
@@ -119,21 +130,20 @@ func (s *elecpriceService) GetTobePushMSG(ctx context.Context) ([]*domain.Electr
 				}
 
 				// 转换电费数据为浮点数
-				lightingRemain, err1 := strconv.ParseFloat(elecPrice.Lighting.RemainMoney, 64)
-				airRemain, err2 := strconv.ParseFloat(elecPrice.Airconditioner.RemainMoney, 64)
+				Remain, err := strconv.ParseFloat(elecPrice.RemainMoney, 64)
 
 				// 跳过解析失败的数据
-				if err1 != nil || err2 != nil {
-					errChan <- fmt.Errorf("解析电费数据失败: %v, %v", err1, err2)
+				if err != nil {
+					errChan <- fmt.Errorf("解析电费数据失败: %v", err)
 					return
 				}
 
 				// 检查是否符合用户设定的阈值
-				if lightingRemain < float64(cfg.Money) || airRemain < float64(cfg.Money) {
+				if Remain < float64(cfg.Limit) {
 					msg := &domain.ElectricMSG{
-						LightingRemainMoney: &elecPrice.Lighting.RemainMoney,
-						AirRemainMoney:      &elecPrice.Airconditioner.RemainMoney,
-						StudentId:           cfg.StudentID,
+						RoomName:  &cfg.RoomName,
+						StudentId: cfg.StudentID,
+						Remain:    &elecPrice.RemainMoney,
 					}
 
 					// 并发安全地添加结果
@@ -197,27 +207,18 @@ func (s *elecpriceService) GetRoomInfo(ctx context.Context, archiID string, floo
 	return res, nil
 }
 
-func (s *elecpriceService) GetPrice(ctx context.Context, aroomid string, lroomid string) (*domain.Elecprice, error) {
-	amid, err := s.GetMeterID(ctx, aroomid)
+func (s *elecpriceService) GetPrice(ctx context.Context, roomid string) (*domain.Prices, error) {
+	mid, err := s.GetMeterID(ctx, roomid)
 	if err != nil {
 		return nil, INTERNET_ERROR(err)
 	}
-	lmid, err := s.GetMeterID(ctx, lroomid)
+
+	price, err := s.GetFinalInfo(ctx, mid)
 	if err != nil {
 		return nil, INTERNET_ERROR(err)
 	}
-	airc, err := s.GetFinalInfo(ctx, amid)
-	if err != nil {
-		return nil, INTERNET_ERROR(err)
-	}
-	light, err := s.GetFinalInfo(ctx, lmid)
-	if err != nil {
-		return nil, INTERNET_ERROR(err)
-	}
-	return &domain.Elecprice{
-		Airconditioner: airc,
-		Lighting:       light,
-	}, nil
+
+	return price, nil
 }
 
 func (s *elecpriceService) GetMeterID(ctx context.Context, RoomID string) (string, error) {

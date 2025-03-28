@@ -5,21 +5,10 @@ type Elecprice struct {
 	Lighting       *Prices `json:"lighting"`
 }
 
-type IDs struct {
-	LightID string
-	AirID   string
-}
-
-type ElecpriceConfig struct {
-	Money     int64
-	StudentId string // 学号
-	IDs       IDs
-}
-
 type ElectricMSG struct {
-	LightingRemainMoney *string
-	AirRemainMoney      *string
-	StudentId           string // 学号
+	RoomName  *string
+	StudentId string // 学号
+	Remain    *string
 }
 
 type Architecture struct {
@@ -37,3 +26,32 @@ type Prices struct {
 	YesterdayUseValue string
 	YesterdayUseMoney string
 }
+
+type Standard struct {
+	Limit    int64
+	RoomId   string
+	RoomName string
+}
+
+type SetStandardRequest struct {
+	StudentId string
+	Standard  *Standard
+}
+
+type SetStandardResponse struct {
+}
+
+type GetStandardListRequest struct {
+	StudentId string
+}
+
+type GetStandardListResponse struct {
+	Standard []*Standard
+}
+
+type CancelStandardRequest struct {
+	StudentId string
+	RoomId    string
+}
+
+type CancelStandardResponse struct{}

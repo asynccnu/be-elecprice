@@ -55,33 +55,57 @@ func (s *ElecpriceServiceServer) GetRoomInfo(ctx context.Context, req *v1.GetRoo
 }
 
 func (s *ElecpriceServiceServer) GetPrice(ctx context.Context, req *v1.GetPriceRequest) (*v1.GetPriceResponse, error) {
-	res, err := s.ser.GetPrice(ctx, req.RoomAircID, req.RoomLightID)
+	res, err := s.ser.GetPrice(ctx, req.RoomId)
 	if err != nil {
 		return nil, err
 	}
 
 	return &v1.GetPriceResponse{
 		Price: &v1.GetPriceResponse_Price{
-			LightingRemainMoney:       res.Lighting.RemainMoney,
-			LightingYesterdayUseMoney: res.Lighting.YesterdayUseMoney,
-			LightingYesterdayUseValue: res.Lighting.YesterdayUseValue,
-
-			AirRemainMoney:       res.Airconditioner.RemainMoney,
-			AirYesterdayUseMoney: res.Airconditioner.YesterdayUseMoney,
-			AirYesterdayUseValue: res.Airconditioner.YesterdayUseValue,
+			RemainMoney:       res.RemainMoney,
+			YesterdayUseValue: res.YesterdayUseValue,
+			YesterdayUseMoney: res.YesterdayUseMoney,
 		},
 	}, nil
 }
 
 func (s *ElecpriceServiceServer) SetStandard(ctx context.Context, req *v1.SetStandardRequest) (*v1.SetStandardResponse, error) {
-	err := s.ser.SetStandard(ctx, &domain.ElecpriceConfig{
-		Money:     req.Money,
+	err := s.ser.SetStandard(ctx, &domain.SetStandardRequest{
 		StudentId: req.StudentId,
-		IDs: domain.IDs{
-			LightID: req.Ids.RoomLightID,
-			AirID:   req.Ids.RoomAircID,
+		Standard: &domain.Standard{
+			Limit:    req.Standard.Limit,
+			RoomId:   req.Standard.RoomId,
+			RoomName: req.Standard.RoomName,
 		},
 	})
 
 	return &v1.SetStandardResponse{}, err
+}
+
+func (s *ElecpriceServiceServer) GetStandardList(ctx context.Context, req *v1.GetStandardListRequest) (*v1.GetStandardListResponse, error) {
+	res, err := s.ser.GetStandardList(ctx, &domain.GetStandardListRequest{
+		StudentId: req.StudentId,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var resp v1.GetStandardListResponse
+	for _, s := range res.Standard {
+		resp.Standards = append(resp.Standards, &v1.Standard{
+			Limit:    s.Limit,
+			RoomId:   s.RoomId,
+			RoomName: s.RoomName,
+		})
+	}
+	return &resp, nil
+}
+
+func (s *ElecpriceServiceServer) CancelStandard(ctx context.Context, req *v1.CancelStandardRequest) (*v1.CancelStandardResponse, error) {
+	err := s.ser.CancelStandard(ctx, &domain.CancelStandardRequest{
+		StudentId: req.StudentId,
+		RoomId:    req.RoomId,
+	})
+
+	return &v1.CancelStandardResponse{}, err
 }
