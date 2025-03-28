@@ -7,9 +7,9 @@ import (
 
 type ElecpriceConfig struct {
 	StudentID string // 学生号
-	Money     int64  //金额
-	LightID   string // 灯ID
-	AirID     string // 空调ID
+	Limit     int64  //金额
+	TargetID  string // 房间ID
+	RoomName  string // 房间名称
 	BaseModel
 }
 
