@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	elecpricev1 "github.com/asynccnu/be-api/gen/proto/elecprice/v1"
@@ -34,7 +35,7 @@ type ElecpriceService interface {
 	CancelStandard(ctx context.Context, r *domain.CancelStandardRequest) error
 	GetTobePushMSG(ctx context.Context) ([]*domain.ElectricMSG, error)
 
-	GetAIDandName(ctx context.Context, area string) (map[string]string, error)
+	GetArchitecture(ctx context.Context, area string) (domain.ResultArchitectureInfo, error)
 	GetRoomInfo(ctx context.Context, archiID string, floor string) (map[string]string, error)
 	GetPrice(ctx context.Context, roomid string) (*domain.Prices, error)
 }
@@ -172,24 +173,24 @@ func (s *elecpriceService) GetTobePushMSG(ctx context.Context) ([]*domain.Electr
 	return resultMsgs, nil
 }
 
-func (s *elecpriceService) GetAIDandName(ctx context.Context, area string) (map[string]string, error) {
+func (s *elecpriceService) GetArchitecture(ctx context.Context, area string) (domain.ResultArchitectureInfo, error) {
 	for name_, code := range ConstantMap {
 		if area == name_ {
 			body, err := sendRequest(ctx, fmt.Sprintf("https://jnb.ccnu.edu.cn/ICBS/PurchaseWebService.asmx/getArchitectureInfo?Area_ID=%s", code))
 			if err != nil {
-				return nil, INTERNET_ERROR(err)
+				return domain.ResultArchitectureInfo{}, INTERNET_ERROR(err)
 			}
-			rege := `<ArchitectureID>(\d+)</ArchitectureID>\s*<ArchitectureName>(.*?)</ArchitectureName>`
-			res, err := matchRegex(body, rege)
+			var result domain.ResultArchitectureInfo
+			
+			err = xml.Unmarshal([]byte(body), &result)
 			if err != nil {
-				return nil, INTERNET_ERROR(err)
+				return domain.ResultArchitectureInfo{}, INTERNET_ERROR(err)
 			}
-
-			return res, nil
+			return result, nil
 
 		}
 	}
-	return nil, errors.New("不存在的区域")
+	return domain.ResultArchitectureInfo{}, errors.New("不存在的区域")
 }
 
 func (s *elecpriceService) GetRoomInfo(ctx context.Context, archiID string, floor string) (map[string]string, error) {
