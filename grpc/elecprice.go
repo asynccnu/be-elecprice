@@ -22,17 +22,19 @@ func (s *ElecpriceServiceServer) Register(server grpc.ServiceRegistrar) {
 	v1.RegisterElecpriceServiceServer(server, s)
 }
 
-func (s *ElecpriceServiceServer) GetAIDandName(ctx context.Context, req *v1.GetAIDandNameRequest) (*v1.GetAIDandNameResponse, error) {
-	res, err := s.ser.GetAIDandName(ctx, req.AreaName)
+func (s *ElecpriceServiceServer) GetArchitecture(ctx context.Context, req *v1.GetArchitectureRequest) (*v1.GetArchitectureResponse, error) {
+	res, err := s.ser.GetArchitecture(ctx, req.AreaName)
 	if err != nil {
 		return nil, err
 	}
 
-	var resp v1.GetAIDandNameResponse
-	for k, v := range res {
-		resp.ArchitectureList = append(resp.ArchitectureList, &v1.GetAIDandNameResponse_Architecture{
-			ArchitectureName: v,
-			ArchitectureID:   k,
+	var resp v1.GetArchitectureResponse
+	for _, a := range res.ArchitectureInfoList.ArchitectureInfo {
+		resp.ArchitectureList = append(resp.ArchitectureList, &v1.GetArchitectureResponse_Architecture{
+			ArchitectureName: a.ArchitectureName,
+			ArchitectureID:   a.ArchitectureID,
+			BaseFloor:        a.ArchitectureBegin,
+			TopFloor:         a.ArchitectureStorys,
 		})
 	}
 	return &resp, nil

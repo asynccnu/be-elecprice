@@ -11,9 +11,26 @@ type ElectricMSG struct {
 	Remain    *string
 }
 
+type ResultInfo struct {
+	Result    string `xml:"result"`
+	TimeStamp string `xml:"timeStamp"`
+	Msg       string `xml:"msg"`
+}
+
 type Architecture struct {
-	AID  string
-	Name string
+	ArchitectureID     string `xml:"ArchitectureID"`
+	ArchitectureName   string `xml:"ArchitectureName"`
+	ArchitectureStorys string `xml:"ArchitectureStorys"`
+	ArchitectureBegin  string `xml:"ArchitectureBegin"`
+}
+
+type ArchitectureInfoList struct {
+	ArchitectureInfo []Architecture `xml:"architectureInfo"`
+}
+
+type ResultArchitectureInfo struct {
+	ResultInfo           ResultInfo           `xml:"resultInfo"`
+	ArchitectureInfoList ArchitectureInfoList `xml:"architectureInfoList"`
 }
 
 type RoomInfo struct {
